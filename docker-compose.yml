@@ -1,0 +1,187 @@
+services:
+
+  mysql:
+    image: mysql:8.4
+    container_name: marisa-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: marisa_express_db
+      MYSQL_USER: marisa
+      MYSQL_PASSWORD: MarisaExpress2024
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./marisa_express/sql/init_db.sql:/docker-entrypoint-initdb.d/01-init_db.sql:ro
+      - ./marisa_express/sql/init_auth.sql:/docker-entrypoint-initdb.d/02-init_auth.sql:ro
+      - ./marisa_auth/sql/init_auth.sql:/docker-entrypoint-initdb.d/03-auth_extra.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - marisa-net
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # BACKEND – Python / Flask / Gunicorn
+  # ────────────────────────────────────────────────────────────────────────────
+
+  marisa-auth:
+    build:
+      context: .
+      dockerfile: marisa_auth/marisa_auth.Dockerfile
+    container_name: marisa-auth
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    env_file: .env
+    environment:
+      - FLASK_ENV=production
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=marisa
+      - DB_PASS=MarisaExpress2024
+      - DB_PASSWORD=MarisaExpress2024
+      - DB_NAME=marisa_express_db
+      - MAIN_BACKEND_URL=http://marisa-express:5000
+      - REDIRECT_UTENTE=http://marisa-express-server-01:3000
+      - REDIRECT_RISTORATORE=http://marisa-express-server-01:3002
+      - REDIRECT_RIDER=http://marisa-express-server-01:3003
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - marisa-net
+
+  marisa-express:
+    build:
+      context: .
+      dockerfile: marisa_express/marisa_express.Dockerfile
+    container_name: marisa-express
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file: .env
+    environment:
+      - FLASK_ENV=production
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=marisa
+      - DB_PASSWORD=MarisaExpress2024
+      - DB_NAME=marisa_express_db
+    volumes:
+      - uploads-data:/app/static/uploads
+    networks:
+      - marisa-net
+
+  marisa-rider:
+    build:
+      context: .
+      dockerfile: marisa_rider/marisa_rider.Dockerfile
+    container_name: marisa-rider
+    restart: unless-stopped
+    ports:
+      - "5003:5003"
+    env_file: .env
+    environment:
+      - FLASK_ENV=production
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=marisa
+      - DB_PASS=MarisaExpress2024
+      - DB_NAME=marisa_express_db
+      - MAIN_BACKEND=http://marisa-express:5000
+      - AUTH_BACKEND=http://marisa-auth:5001
+    volumes:
+      - uploads-data:/app/static/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - marisa-net
+
+  marisa-ristoratore:
+    build:
+      context: .
+      dockerfile: marisa_ristoratore/marisa_ristoratore.Dockerfile
+    container_name: marisa-ristoratore
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    env_file: .env
+    environment:
+      - FLASK_ENV=production
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=marisa
+      - DB_PASS=MarisaExpress2024
+      - DB_NAME=marisa_express_db
+      - MAIN_BACKEND=http://marisa-express:5000
+      - AUTH_BACKEND=http://marisa-auth:5001
+    volumes:
+      - uploads-data:/app/static/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - marisa-net
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # FRONTEND – Angular → Nginx
+  # ────────────────────────────────────────────────────────────────────────────
+
+  marisa-auth-frontend:
+    build:
+      context: .
+      dockerfile: marisa-auth-frontend/marisa_auth_frontend.Dockerfile
+    container_name: marisa-auth-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    networks:
+      - marisa-net
+
+  rider-app:
+    build:
+      context: .
+      dockerfile: rider-app/rider_app.Dockerfile
+    container_name: rider-app
+    restart: unless-stopped
+    ports:
+      - "3003:80"
+    networks:
+      - marisa-net
+
+  ristoratori-app:
+    build:
+      context: .
+      dockerfile: ristoratori-app/ristoratori_app.Dockerfile
+    container_name: ristoratori-app
+    restart: unless-stopped
+    ports:
+      - "3002:80"
+    networks:
+      - marisa-net
+
+  marisa-express-app:
+    build:
+      context: .
+      dockerfile: marisa-express-app/marisa_express_app.Dockerfile
+    container_name: marisa-express-app
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - marisa-net
+
+networks:
+  marisa-net:
+    driver: bridge
+
+
+volumes:
+  mysql-data:
+  uploads-data:
